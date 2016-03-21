@@ -163,7 +163,7 @@ ggplot(melted_cM)+
 geom_tile(aes(x=Prediction, y=Reference, fill=Freq))+
 scale_x_discrete(name="Actual Class")+
 scale_y_discrete(name="Predicted Class")+
-scale_fill_gradient(name="log (freq)", trans="log",low="red",breaks=my_scale)+
+scale_fill_gradient(name="freq", trans="log",low="red",breaks=my_scale)+
 theme_bw()+
 ggtitle("Confusion Matrix")
 ```
