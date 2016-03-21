@@ -4,4 +4,5 @@ Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible t
 The goal of the project was to develop a model for predicting quality of execution of weight lifting exercises starting from accelerometer data.
  
 [More information is available here](http://groupware.les.inf.puc-rio.br/har)
+
 PLEASE NOTE: To view the report, please go to [link](http://slava-kohut.github.io/R-Coursera-Practical-Machine-Learning-Project)
