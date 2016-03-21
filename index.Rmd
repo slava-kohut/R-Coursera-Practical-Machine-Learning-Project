@@ -1,0 +1,175 @@
+---
+title: "Machine Learning for Human Activity Recognition: Weight Lifting Exercises"
+author: "Sviataslau Kohut"
+date: "March 18, 2016"
+output: html_document
+theme: default
+---
+```{r,echo=FALSE,warning=FALSE,message=FALSE}
+library(caret)
+library(corrplot)
+set.seed(12345)
+```
+
+## Introduction
+Using devices such as *Jawbone Up*, *Nike FuelBand*, and *Fitbit* it is now possible to collect a large amount of data about personal activity relatively inexpensively. 
+These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. 
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+In this project, data from accelerometers on the belt, forearm, arm and dumbell are used to predict quality of execution of dumbell lifts using the random forest algorithm. 
+A model that was constructed involves the use of 46 predictors and allows one to predict the execution quality with the accuracy of 99.42 %. 
+
+## Exploratoty Data Analysis
+
+A training data set contains around 20 000 observations for 160 variables, while there are only 20 of them in a testing set.
+
+```{r, cache=TRUE}
+trainingSet<-read.csv('/home/molkee/Desktop/8-practical-machine-learning/pml-training.csv',sep = ',',dec='.')
+testingSet<-read.csv('/home/molkee/Desktop/8-practical-machine-learning/pml-testing.csv',sep = ',',dec='.')
+dim(trainingSet)
+dim(testingSet)
+```
+
+A variable to be predicted is the *classe* variable. It has five values: A, B, C, D and E:
+
+```{r,echo=FALSE}
+levels(trainingSet$classe)
+```
+
+The class "A" refers to execution exactly as in the specification, while other classes  represent common execution mistakes.
+
+We need to get rid of the irrelevant data such as time stamps, participant name, etc. These data are the first seven columns in the data sets:  
+
+```{r}
+str(trainingSet[,c(1:7)])
+trainingSet<-trainingSet[,-c(1:7)]
+testingSet<-testingSet[,-c(1:7)]
+```
+
+Because training data set now only contains response from accelerometers (predictors) (*numeric*","*integer*" and "*factor*"), we need to convert all *factor* predictor variables to *numeric* as they clearly represent numerical data (acceleration, coordinates, etc.).
+
+```{r,warning=FALSE}
+unique(sapply(trainingSet[,-ncol(trainingSet)],class))
+# the same indices in case of the testing set
+indFactor<-which(sapply(trainingSet[,-ncol(trainingSet)],is.factor))
+trainingSet[indFactor] <- lapply(trainingSet[indFactor], function(x) as.numeric(as.character(x)))
+testingSet[indFactor] <- lapply(testingSet[indFactor], function(x) as.numeric(as.character(x)))
+```
+
+Finally, all *NA* values were set to zero. 
+
+```{r}
+trainingSet[is.na(trainingSet)]<-0.
+testingSet[is.na(testingSet)]<-0.
+```
+
+
+## Pre-Processing
+
+Predictors in the data set need to be preprocessed.
+
+The plan is as follows:
+
+1. eliminate zero and near-zero variance predictors
+2. eliminate correlated predictors  
+ 
+First, near-zero variance predictors were eliminated using the `nearZeroVar` function:
+```{r,warning=FALSE}
+nzv<-nearZeroVar(trainingSet[,-ncol(trainingSet)],freqCut = 95/5,uniqueCut=10)
+trainingSet<-trainingSet[,-nzv]
+```
+
+Next, the `findCorrelation` function was applied to remove predictors with absolute correlations above 0.9:
+```{r,warning=FALSE}
+corPred<-findCorrelation(cor(trainingSet[,-ncol(trainingSet)],use='complete.obs'),cutoff = 0.90,verbose = F)
+trainingSet<-trainingSet[,-corPred]
+```
+
+The resulting data clean set contains 45 predictors and the target `classe` variable.
+```{r}
+dim(trainingSet)
+```
+
+## Model Training and Tuning 
+
+The data set was partiotioned into a training set (80 % of the data) and a validation set (20 % of the data) which was used to access quality of fits. 
+```{r}
+indTrain<-createDataPartition(trainingSet$classe, p = .8, list = FALSE)
+training<-trainingSet[indTrain,]
+validation<-trainingSet[-indTrain,]
+```
+
+Several models were considered for predicting the quality of execution.  
+They included decision trees (`rpart`), stochastic gradient boosting (`gbm`) and the random forest algorithm (`rf`).
+The latter is vastly superior to the other models in terms of accuracy and computational.
+Therefore, the random forest algorithm was applied to the problem under consideration. 
+Naive application of the `train` function in conjunction with the `rf` method for the training data set is computationally expensive and may require several hours.
+To speed up the code, some parameters were tuned. 
+In particular, parallelization was used (`doMC` library). 
+The code was executed on two cores.
+Also, the `mtry` parameter (a number of predictors at each node of the tree) was set to 10. 
+This made it possibe to reduce computational time to less than half an hour.
+Repeated K-gold (*K*=5) cross validation was used for better accuracy. 
+```{r fit,cache=TRUE, warning=FALSE}
+library(doMC)
+registerDoMC(2) #use two cores
+
+fitParam<-trainControl(method ="repeatedcv",
+                           number = 10,
+                           repeats = 5,
+                           returnResamp = "all",
+                           allowParallel = T)
+rfGrid<-expand.grid(mtry = 10)
+
+rfFit <- train(classe ~ ., 
+              data = training,
+              method = "rf",
+              trControl = fitParam,
+              rfGrid = rfGrid,
+              metric="Accuracy",
+              maximize=TRUE)
+
+rfFit
+```
+
+
+
+## Model Assessment
+
+To access performance of the prediction model, it was applied to the validation set.
+The resuting prediction accuracy is 99.41 %.
+This is quite impressive because the accuracy achieved on the training set was 99.42 %.
+```{r pred-valid,cache=TRUE, dependson='fit',warning=FALSE}
+cM<-confusionMatrix(validation$classe,predict(rfFit,newdata=validation))
+cM
+```
+
+## Prediction
+
+The obtained model was used for predictions on the testing set.  
+It accurately predicted *all* outcomes for twenty provided observations.  
+```{r pred-test,cache=TRUE, dependson='fit',warning=FALSE}
+results<-predict(rfFit,newdata=testingSet[-ncol(testingSet)])  
+results
+```
+
+## Appendix 
+
+1. **Confusion Matrix Heatmap**
+
+```{r fig1}
+my_scale = c(0, 10, 100, 1000, 10000)
+melted_cM<-as.data.frame.table(cM$table)
+ggplot(melted_cM)+
+geom_tile(aes(x=Prediction, y=Reference, fill=Freq))+
+scale_x_discrete(name="Actual Class")+
+scale_y_discrete(name="Predicted Class")+
+scale_fill_gradient(name="log (freq)", trans="log",low="red",breaks=my_scale)+
+theme_bw()+
+ggtitle("Confusion Matrix")
+```
+
+2. **Correlation Matrix for Predictors**
+
+```{r fig2,fig.width=8,fig.height=8}
+corrplot(cor(training[-ncol(training)]),method="color")  
+```
